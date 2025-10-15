@@ -4,7 +4,7 @@ import requests
 import collections
 import json
 from datetime import date
-from typing import Counter, Dict, Any
+from typing import Counter, Dict, Any, List
 
 # read the configuration from .env file
 from dotenv import load_dotenv
@@ -30,8 +30,9 @@ def get_top_languages(top_n: int = 10, with_forks: bool = False, verbose: bool =
     repository list and the language data for the current day.
 
     Args:
-        top_n: The number of top languages to display. Defaults to 10.
-        with_forks: If True, include forked repositories in the analysis. Defaults to False.
+        :param top_n: The number of top languages to display. Defaults to 10.
+        :param with_forks: If True, include forked repositories in the analysis. Defaults to False.
+        :param verbose: display more information
     """
     if not GITHUB_TOKEN:
         print("❌ Error: GITHUB_TOKEN environment variable not set.")
@@ -144,10 +145,85 @@ def get_top_languages(top_n: int = 10, with_forks: bool = False, verbose: bool =
         percentage = (byte_count / total_bytes) * 100
         print(f"{i+1: >2}. {language: <15} {percentage: >6.2f}%")
 
+    # Step 5: Build and display the detailed table
+    top_language_names = [lang for lang, count in sorted_languages]
+    table_string = build_language_table(repos, languages_cache, top_language_names, with_forks)
+    print("\n\n--- Detailed Language Breakdown (Bytes) ---")
+    print(table_string)
+
+def build_language_table(
+        repos: List[Dict[str, Any]],
+        languages_cache: Dict[str, Any],
+        top_language_names: List[str],
+        with_forks: bool
+) -> str:
+    """
+    Builds a formatted string table of language usage per repository for the top languages.
+
+    Args:
+        repos: The list of repository dictionaries.
+        languages_cache: The cache containing language data for each repo.
+        top_language_names: A list of the names of the top N languages.
+        with_forks: Boolean to correctly filter repositories.
+
+    Returns:
+        A formatted string representing the table.
+    """
+    header = ["Repository"] + top_language_names
+
+    # Collect rows of data
+    rows = []
+    for repo in repos:
+        if not with_forks and repo["fork"]:
+            continue
+
+        repo_name = repo["name"]
+        repo_full_name = repo["full_name"]
+
+        repo_langs = languages_cache["languages"].get(repo_full_name, {})
+
+        row_data = [repo_name]
+        for lang in top_language_names:
+            bytes_count = repo_langs.get(lang, 0)
+            row_data.append(str(bytes_count))
+
+        rows.append(row_data)
+
+    # Calculate column widths for alignment
+    if not (rows and header):
+        return "No data to display in table."
+
+    col_widths = [len(h) for h in header]
+    for row in rows:
+        for i, cell in enumerate(row):
+            if len(cell) > col_widths[i]:
+                col_widths[i] = len(cell)
+
+    # Build the formatted output string
+    output_lines = []
+
+    # Header
+    header_line = " | ".join(header[i].ljust(col_widths[i]) for i in range(len(header)))
+    output_lines.append(header_line)
+
+    # Separator
+    separator = "-+-".join("-" * width for width in col_widths)
+    output_lines.append(separator)
+
+    # Data rows
+    for row in rows:
+        data_line = " | ".join(row[i].ljust(col_widths[i]) for i in range(len(row)))
+        output_lines.append(data_line)
+
+    return "\n".join(output_lines)
+
+
+
+
 def usage():
     usage_msg = """
-    usage get_top_languages top_n: int = 10, with_forks: bool = False
-        top_n: The number of top languages to display. Defaults to 10.
+    usage get_top_languages top_n: int = 5, with_forks: bool = False
+        top_n: The number of top languages to display. Defaults to 5.
         with_forks: If True, include forked repositories in the analysis. Defaults to False.
 
     description:
@@ -162,18 +238,19 @@ if __name__ == "__main__":
     # retrieve first argument if any and store it in top_n
     if len(sys.argv) > 1:
         try:
-            top_n = int(sys.argv[1])
+            get_top_n = int(sys.argv[1])
         except ValueError:
             print(f"💥 expecting first argument to be an integer representing top_n, got {sys.argv[1]}")
             usage()
             sys.exit(1)
     else:
-        top_n = 10
+        get_top_n = 5
+    # retrieve second argument if any and store it in with_forks
     if len(sys.argv) > 2:
-        with_forks = sys.argv[2].lower() == "true"
+        use_forks = sys.argv[2].lower() == "true"
     else:
-        with_forks = False
+        use_forks = False
 
-    # Example 2: Get top 5 languages, including forked repos
+    # Get top n languages, including forked repos if asked
     print("--- Running with custom settings (top 5, with forks) ---")
-    get_top_languages(top_n=top_n, with_forks=with_forks)
+    get_top_languages(top_n=get_top_n, with_forks=use_forks)
